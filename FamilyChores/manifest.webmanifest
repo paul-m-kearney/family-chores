@@ -1,0 +1,12 @@
+{
+  "name": "Family Chores",
+  "short_name": "Chores",
+  "description": "Daily, weekly and monthly family chores with a shared check-off list and a daily score.",
+  "start_url": "./index.html#today",
+  "display": "standalone",
+  "background_color": "#f6f4ef",
+  "theme_color": "#2a6f6a",
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
