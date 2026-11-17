@@ -126,13 +126,18 @@
         var gotCfg = false, gotDays = false;
         var timer = setTimeout(function () { reject(new Error('Timed out connecting to the family database. Check your connection and Firebase config.')); }, 15000);
         function done() { if (gotCfg && gotDays && !self.ready) { self.ready = true; clearTimeout(timer); resolve(self); } }
+        function fail(e) {
+          clearTimeout(timer);
+          if (e && e.code === 'permission-denied') e = new Error('The database refused access (permission-denied). In the Firebase console, open Firestore > Rules, paste the contents of firestore.rules and click Publish, then try again.');
+          reject(e);
+        }
         self.unsubs.push(self.fam.collection('data').doc('config').onSnapshot(function (s) {
           self.config = s.exists ? s.data() : null; gotCfg = true; done(); self.ev.emit('remote');
-        }, function (e) { clearTimeout(timer); reject(e); }));
+        }, fail));
         self.unsubs.push(self.fam.collection('days').onSnapshot(function (s) {
           var d = {}; s.forEach(function (doc) { d[doc.id] = doc.data(); });
           self.days = d; gotDays = true; done(); self.ev.emit('remote');
-        }, function (e) { clearTimeout(timer); reject(e); }));
+        }, fail));
       });
     });
   };
@@ -148,8 +153,9 @@
       base.checks = {}; base.checks[taskId] = check;
       return ref.set(base, { merge: true }); /* nested-map merge: two people ticking different chores never collide */
     }
-    var del = {}; del['checks.' + taskId] = root.firebase.firestore.FieldValue.delete();
-    return ref.set(base, { merge: true }).then(function () { return ref.update(del); });
+    /* FieldPath object, not a dotted string: ids may start with a digit, which a string path rejects. */
+    var path = new root.firebase.firestore.FieldPath('checks', taskId);
+    return ref.set(base, { merge: true }).then(function () { return ref.update(path, root.firebase.firestore.FieldValue.delete()); });
   };
   FirestoreStore.prototype.patchDay = function (key, patch) {
     var p = { date: key }; Object.keys(patch).forEach(function (k) { p[k] = patch[k]; });

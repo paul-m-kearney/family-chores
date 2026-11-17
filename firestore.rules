@@ -12,10 +12,14 @@ service cloud.firestore {
 
       match /data/{doc} {
         allow read: if codeOk(code) && doc == 'config';
-        allow write: if codeOk(code) && doc == 'config' && request.resource.data.keys().hasAll(['familyName', 'members', 'tasks']);
+        allow create, update: if codeOk(code) && doc == 'config' && request.resource.data.keys().hasAll(['familyName', 'members', 'tasks']);
+        allow delete: if codeOk(code) && doc == 'config';
       }
       match /days/{day} {
-        allow read: if codeOk(code) && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+        // The app listens to the whole days collection, so listing must be allowed without
+        // a per-document condition; single-document reads and all writes keep the date check.
+        allow list: if codeOk(code);
+        allow get: if codeOk(code) && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
         allow write: if codeOk(code) && day.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
       }
     }

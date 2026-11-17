@@ -14,4 +14,11 @@
 
    This config is public by design (it identifies your project, it is not a secret). Access is
    controlled by firestore.rules and your family's long random code. */
-window.FIREBASE_CONFIG = null;
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD5LpUPbx803RJazNHDLex-mPiQsf9fwbk",
+  authDomain: "family-chores-kearney.firebaseapp.com",
+  projectId: "family-chores-kearney",
+  storageBucket: "family-chores-kearney.firebasestorage.app",
+  messagingSenderId: "247628296822",
+  appId: "1:247628296822:web:3e9e39e063be1e8b38e557"
+};

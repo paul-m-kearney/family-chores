@@ -36,13 +36,28 @@
     var first = form.querySelector('input[type=text]'); if (first) first.focus();
   }
   function closeDialog() { $('#dialog').close(); }
+  function showError(title, msg) {
+    openDialog('<h2>' + esc(title) + '</h2><p class="small">' + esc(msg) + '</p><div class="row" style="justify-content:flex-end"><button class="btn primary" value="cancel">OK</button></div>');
+  }
   function member(id) { return (config.members || []).filter(function (m) { return m.id === id; })[0] || null; }
   function memberName(id) { var m = member(id); return m ? m.name : (id ? 'Someone' : 'Anyone'); }
   function memberChip(m, pressed, count) {
     var c = m ? m.color : '#8a9494';
     return '<button type="button" class="chip" data-action="pick-me" data-id="' + attr(m ? m.id : '') + '" aria-pressed="' + (pressed ? 'true' : 'false') + '" style="--c:' + attr(c) + '">' +
-      (m ? '<span aria-hidden="true">' + esc(m.emoji || '') + '</span>' : '<span class="dot"></span>') + esc(m ? m.name : 'Someone') +
+      (m ? avatarHtml(m, 'xs') : '<span class="dot"></span>') + esc(m ? m.name : 'Someone') +
       (count != null ? '<span class="count">' + count + '</span>' : '') + '</button>';
+  }
+  /* Who completed a check: prefer the current member record, fall back to the snapshot in the check. */
+  function completer(check) {
+    if (!check) return null;
+    var m = check.by ? member(check.by) : null;
+    if (m) return { id: m.id, name: m.name, emoji: m.emoji, color: m.color };
+    if (check.by || check.byName) return { id: check.by || null, name: check.byName || 'Someone', emoji: check.emoji || '👤', color: check.color || '#8a9494' };
+    return { id: null, name: 'someone', emoji: '✓', color: null };
+  }
+  function avatarHtml(a, cls) {
+    if (!a) return '';
+    return '<span class="avatar ' + (cls || '') + '" style="--c:' + attr(a.color || 'var(--card-2)') + '" title="' + attr(a.name) + '" aria-hidden="true">' + esc(a.emoji) + '</span>';
   }
   function timeOf(iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
   function tasks() { return config.tasks || []; }
@@ -91,7 +106,7 @@
       $('#app').addEventListener('click', onClick);
       $('#app').addEventListener('change', onChange);
       var m = location.hash.match(/#join=([a-z0-9]+)/i);
-      if (m) { history.replaceState(null, '', '#family'); if (!Sync.getCode() || Sync.getCode() !== m[1].toLowerCase()) return promptJoin(m[1].toLowerCase()); }
+      if (m) { var already = Sync.getCode() === m[1].toLowerCase(); history.replaceState(null, '', already ? '#today' : '#family'); if (!already) return promptJoin(m[1].toLowerCase()); }
       if (!config) { $$('nav.tabs a').forEach(function (a) { if (a.dataset.tab === 'today') a.setAttribute('aria-current', 'page'); }); $('#app').innerHTML = '<div class="card"><h2>Family Chores</h2><p class="muted small">One shared list for the whole family. Daily, weekly and monthly chores, a check-off anyone can tap, and a score for every day.</p></div>'; return wizard(); }
       if (me && !member(me)) me = null;
       ensureToday().then(finalizePastDays).then(function () { route(); showRecap(); });
@@ -116,7 +131,7 @@
       '<div class="row" style="justify-content:flex-end"><button class="btn primary" value="ok">Let\'s go</button></div>';
     openDialog(html, function (fd) {
       var names = String(fd.get('members') || '').split(/\n|,/).map(function (s) { return s.trim(); }).filter(Boolean);
-      var members = names.map(function (n, i) { return { id: S.uid(), name: n.slice(0, 30), emoji: EMOJIS[i % EMOJIS.length], color: COLORS[i % COLORS.length] }; });
+      var members = names.map(function (n, i) { return { id: S.uid(), name: n.slice(0, 30), emoji: EMOJIS[i % EMOJIS.length], color: COLORS[(i + Math.floor(i / COLORS.length)) % COLORS.length] }; });
       var ts = fd.get('starter') ? STARTER.map(function (t, i) { return { id: S.uid(), title: t[0], freq: t[1], assignee: null, order: i }; }) : [];
       config = { familyName: String(fd.get('familyName') || 'Our Family').slice(0, 40), members: members, tasks: ts, settings: { weekStart: Number(fd.get('weekStart')) || 0 }, createdAt: new Date().toISOString() };
       store.setConfig(config).then(ensureToday).then(function () { toast('All set. Tap a chore to check it off.'); render(); });
@@ -157,14 +172,16 @@
 
   function choreItem(t, check, flexDate) {
     var done = !!check;
-    var who = done ? (check.by ? memberName(check.by) : 'someone') : null;
+    var c = done ? completer(check) : null;
+    var who = done ? c.name : null;
     var when = done ? (flexDate && flexDate !== viewDate ? ' on ' + L.describeDay(flexDate, today) : ' at ' + timeOf(check.at)) : '';
     var m = t.assignee ? member(t.assignee) : null;
+    var stamp = done ? (c.color ? '<span class="stamp" style="--c:' + attr(c.color) + '">' + esc(c.emoji) + '</span>' : '✓') : '';
     return '<li class="chore' + (done ? ' done' : '') + '">' +
-      '<button type="button" class="check" role="checkbox" aria-checked="' + done + '" data-action="toggle" data-id="' + attr(t.id) + '" data-freq="' + attr(t.freq) + '" data-date="' + attr(flexDate || viewDate) + '" aria-label="' + attr(t.title) + '">' + (done ? '✓' : '') + '</button>' +
+      '<button type="button" class="check' + (done && c.color ? ' stamped' : '') + '" role="checkbox" aria-checked="' + done + '" data-action="toggle" data-id="' + attr(t.id) + '" data-freq="' + attr(t.freq) + '" data-date="' + attr(flexDate || viewDate) + '" aria-label="' + attr(t.title + (done ? ', done by ' + who : '')) + '">' + stamp + '</button>' +
       '<div class="info"><div class="title">' + esc(t.title) + '</div><div class="meta">' +
       (t.freq !== 'daily' ? '<span class="tag freq-' + t.freq + '">' + t.freq + '</span>' : '') +
-      (m ? '<span class="who"><span class="avatar" style="--c:' + attr(m.color) + '">' + esc(m.emoji || '') + '</span>' + esc(m.name) + '</span>' : (t.freq === 'daily' ? '<span class="tiny">anyone</span>' : '')) +
+      (m ? '<span class="who" title="Assigned to ' + attr(m.name) + '">' + avatarHtml(m, 'xs') + '<span class="tiny">for</span> ' + esc(m.name) + '</span>' : (t.freq === 'daily' ? '<span class="tiny">anyone</span>' : '')) +
       (done ? '<span>· done by ' + esc(who) + esc(when) + '</span>' : '') +
       '</div></div></li>';
   }
@@ -269,10 +286,10 @@
     pts.slice().reverse().forEach(function (p) {
       var val = p.s && p.s.total ? p.s.percent : null;
       var lines = [];
-      if (p.s) Object.keys(days[p.k].checks || {}).forEach(function (id) { var c = days[p.k].checks[id]; if (c) lines.push(esc((c.title || 'Chore')) + ' <span class="tiny">' + esc(c.by ? memberName(c.by) : 'someone') + (c.freq !== 'daily' ? ' · ' + c.freq : '') + '</span>'); });
+      if (p.s) Object.keys(days[p.k].checks || {}).forEach(function (id) { var c = days[p.k].checks[id]; if (!c) return; var w = completer(c); lines.push('<span class="logline">' + (w.color ? avatarHtml(w, 'xs') : '<span class="avatar xs" aria-hidden="true">✓</span>') + '<span>' + esc((c.title || 'Chore')) + ' <span class="tiny">' + esc(w.name) + ' · ' + esc(timeOf(c.at)) + (c.freq !== 'daily' ? ' · ' + c.freq : '') + '</span></span></span>'); });
       h += '<li><details><summary><div><div>' + esc(L.describeDay(p.k, today)) + ' <span class="tiny">' + esc(L.shortDate(p.k)) + '</span></div>' + (val == null ? '' : '<div class="minibar"><i style="width:' + val + '%"></i></div>') + '</div>' +
         '<span class="pct' + (val == null ? ' na' : '') + '">' + (val == null ? (p.st === 'skip' ? 'nothing scheduled' : 'not logged') : val + '% · ' + p.s.done + '/' + p.s.total) + '</span></summary>' +
-        '<div class="body">' + (lines.length ? lines.join('<br>') : 'Nothing checked off.') + (p.k < today ? ' <a href="#today" data-action="view-day" data-day="' + p.k + '">Edit this day</a>' : '') + '</div></details></li>';
+        '<div class="body">' + (lines.length ? lines.join('') : 'Nothing checked off.') + (p.k < today ? ' <a href="#today" data-action="view-day" data-day="' + p.k + '">Edit this day</a>' : '') + '</div></details></li>';
     });
     h += '</ul></div>';
     return h;
@@ -390,7 +407,8 @@
       return;
     }
     var before = L.scoreDay({ scheduled: scheduledFor(viewDate), checks: (store.getDay(viewDate) || {}).checks || {} }).percent;
-    var check = { by: me, at: new Date().toISOString(), title: t ? t.title : 'Chore', freq: freq };
+    var mm = me ? member(me) : null;
+    var check = { by: me, byName: mm ? mm.name : null, emoji: mm ? mm.emoji : null, color: mm ? mm.color : null, at: new Date().toISOString(), title: t ? t.title : 'Chore', freq: freq };
     store.setCheck(viewDate, id, check, scheduledFor(viewDate)).then(function () {
       render();
       var after = L.scoreDay({ scheduled: scheduledFor(viewDate), checks: (store.getDay(viewDate) || {}).checks || {} }).percent;
@@ -428,12 +446,20 @@
     all[i] = group[gj]; all[j] = t;
     config.tasks = all; store.setConfig(config).then(render);
   }
+  function firstUnused(list, key) {
+    var used = config.members.map(function (x) { return x[key]; });
+    for (var i = 0; i < list.length; i++) if (used.indexOf(list[i]) < 0) return list[i];
+    return list[config.members.length % list.length];
+  }
   function memberForm(m) {
-    var isNew = !m; m = m || { id: S.uid(), name: '', emoji: EMOJIS[config.members.length % EMOJIS.length], color: COLORS[config.members.length % COLORS.length] };
+    var isNew = !m; m = m || { id: S.uid(), name: '', emoji: firstUnused(EMOJIS, 'emoji'), color: firstUnused(COLORS, 'color') };
+    var usedEmoji = {}, usedColor = {};
+    config.members.forEach(function (x) { if (x.id !== m.id) { usedEmoji[x.emoji] = x.name; usedColor[x.color] = x.name; } });
     var html = '<h2>' + (isNew ? 'Add a family member' : 'Edit ' + esc(m.name)) + '</h2>' +
       '<label class="field"><span>Name</span><input type="text" name="name" required maxlength="30" value="' + attr(m.name) + '"></label>' +
-      '<div class="field"><span>Icon</span><div class="emoji-picks">' + EMOJIS.map(function (e) { return '<label><input type="radio" name="emoji" value="' + e + '"' + (m.emoji === e ? ' checked' : '') + '>' + e + '</label>'; }).join('') + '</div></div>' +
-      '<div class="field"><span>Colour</span><div class="swatches">' + COLORS.map(function (c) { return '<label style="--c:' + c + '"><input type="radio" name="color" value="' + c + '"' + (m.color === c ? ' checked' : '') + '><span class="sr-only">' + c + '</span></label>'; }).join('') + '</div></div>' +
+      '<div class="field"><span>Avatar <span class="tiny">(each person gets their own; greyed ones are taken)</span></span><div class="emoji-picks">' + EMOJIS.map(function (e) { var taken = usedEmoji[e]; return '<label class="' + (taken ? 'taken' : '') + '" title="' + attr(taken ? 'Used by ' + taken : '') + '"><input type="radio" name="emoji" value="' + e + '"' + (m.emoji === e ? ' checked' : '') + (taken ? ' disabled' : '') + '>' + e + '</label>'; }).join('') + '</div></div>' +
+      '<div class="field"><span>Colour</span><div class="swatches">' + COLORS.map(function (c) { var taken = usedColor[c]; return '<label class="' + (taken ? 'taken' : '') + '" style="--c:' + c + '" title="' + attr(taken ? 'Used by ' + taken : '') + '"><input type="radio" name="color" value="' + c + '"' + (m.color === c ? ' checked' : '') + (taken ? ' disabled' : '') + '><span class="sr-only">' + c + '</span></label>'; }).join('') + '</div></div>' +
+      '<div class="row small" style="gap:8px"><span class="muted">Preview:</span><span class="avatar lg" id="avPreview" style="--c:' + attr(m.color) + '">' + esc(m.emoji) + '</span></div>' +
       '<div class="row between">' + (isNew ? '<span></span>' : '<button class="btn danger" value="delete" formnovalidate>Remove</button>') + '<span class="row"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Save</button></span></div>';
     openDialog(html, function (fd, form, btn) {
       if (btn && btn.value === 'delete') {
@@ -445,8 +471,15 @@
       }
       var nm = { id: m.id, name: String(fd.get('name')).trim().slice(0, 30), emoji: fd.get('emoji') || m.emoji, color: fd.get('color') || m.color };
       if (!nm.name) return false;
+      var clash = config.members.filter(function (x) { return x.id !== nm.id && x.emoji === nm.emoji && x.color === nm.color; })[0];
+      if (clash) { toast(clash.name + ' already has that avatar. Pick a different icon or colour.'); return false; }
       if (isNew) config.members = config.members.concat([nm]); else config.members = config.members.map(function (x) { return x.id === m.id ? nm : x; });
       store.setConfig(config).then(render);
+    });
+    $('#dialogForm').addEventListener('change', function (e) {
+      var f = $('#dialogForm'), pv = $('#avPreview'); if (!pv) return;
+      var em = f.querySelector('input[name=emoji]:checked'), co = f.querySelector('input[name=color]:checked');
+      if (em) pv.textContent = em.value; if (co) pv.style.setProperty('--c', co.value);
     });
   }
 
@@ -476,7 +509,7 @@
   function createFamily() {
     if (!confirm('Create a shared family? This device\'s chores and history will be uploaded to your Firebase project, and you\'ll get an invite link for the rest of the family.')) return;
     toast('Creating family…');
-    Sync.createFamily(store).then(function () { location.hash = '#family'; location.reload(); }, function (e) { alert('Could not create the family: ' + (e.message || e)); });
+    Sync.createFamily(store).then(function () { location.hash = '#family'; location.reload(); }, function (e) { showError('Could not create the family', e.message || String(e)); });
   }
   function promptJoin(code) {
     var html = '<h2>Join a family</h2><p class="small">Paste the family code (or open the invite link on this phone). Your current local list is backed up first.</p>' +
@@ -485,7 +518,7 @@
     openDialog(html, function (fd) {
       var c = String(fd.get('code') || '').trim().toLowerCase().replace(/^.*#join=/, '');
       var local = store.mode === 'local' ? store : new S.LocalStore();
-      Sync.joinFamily(c, local).then(function () { location.hash = '#today'; location.reload(); }, function (e) { alert(e.message || e); });
+      Sync.joinFamily(c, local).then(function () { location.hash = '#today'; location.reload(); }, function (e) { setTimeout(function () { showError('Could not join', e.message || String(e)); }, 50); });
     });
     if (!config) { config = { familyName: 'Family Chores', members: [], tasks: [], settings: {} }; render(); config = null; }
   }
