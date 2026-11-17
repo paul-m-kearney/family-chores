@@ -19,3 +19,18 @@
 **Not verified here:** live Firestore path (needs the PI's Firebase project). Adapter is ~60 lines; README has the two-phone test.
 
 **Open PI items:** publish to a host; optionally set up Firebase and paste config into `js/firebase-config.js`; rename "Our Family" default and add members in the wizard.
+
+## 2026-11-17 addendum: tablet, Firebase, live sync verification
+
+- Samsung tablet (serial 5200ba30c0da45df) appeared over USB only after a data cable; no adb/MTP tooling on the Mac, and auto mode refused to execute the downloaded (checksum-verified) platform-tools adb. Fell back to LAN transfer (python http.server on 8765) and then to the hosted + Firebase plan at the PI's request.
+- PI created Firebase project `family-chores-kearney`; web config pasted into `js/firebase-config.js` (public identifiers, not secrets).
+- REST probes against the live database found two rule bugs, both mine: (1) `allow write` on config blocked deletes (no request.resource on delete) -> split into create/update + delete; (2) `allow read` on days with a per-doc date condition blocked the collection *listing* the app subscribes to -> `allow list` without condition, `allow get`/`write` keep the date check. PI republished; propagation ~1 min.
+- App hardening from the live test: replaced blocking `alert()` with an in-app error dialog (an alert froze headless Chrome and would freeze a kiosk tablet); clearer permission-denied message; already-joined invite links land on Today; **sync-mode uncheck used a dotted string field path that fails for ids starting with a digit** -> `firebase.firestore.FieldPath('checks', id)`.
+- Verification: `tests/ui-drive-sync.mjs` 20/20 against the real Firestore (create family uploads 29 tasks; check-off, uncheck, re-check reach the server; server-side REST write appears live in the page at 22%; second tab joins via invite link and shows synced state). `tests/ui-drive.mjs` local mode 40/40. Unit tests 18/18. Test families and probe docs deleted afterwards.
+- Deliverable: `FamilyChores.zip` (30.6 KB) with config and corrected rules. Local server on 8765 left running for the tablet; headless Chrome stopped.
+
+## 2026-11-17 addendum 2: avatar stamps
+
+- PI request: stamp each completed task with the completer's unique avatar.
+- Change: the check button becomes the completer's stamp (emoji on their colour) with a short pop animation; "for <name>" marks the assignee separately; History log lines carry the stamp plus name and time; member chips use coloured avatars; each check-off snapshots byName/emoji/color so history survives member edits or removal; member form disables avatars and colours already taken, defaults to the first unused, blocks exact duplicates; wizard assigns distinct pairs.
+- Verification: local UI 47/47 (new checks: stamp class/emoji/colour match the chosen person, accessible label names the completer, log stamps, taken avatars disabled), live sync 20/20, unit 18/18. Zip rebuilt.

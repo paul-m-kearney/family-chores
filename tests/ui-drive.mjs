@@ -40,6 +40,9 @@ check('Mom selected', (await ev(`document.querySelector('[data-action=pick-me]')
 await ev(`document.querySelector('.check[data-freq=daily]').click()`); await sleep(200);
 check('first daily chore checked', (await ev(`document.querySelector('.check[data-freq=daily]').getAttribute('aria-checked')`)) === 'true');
 check('credited to Mom with time', /done by Mom at/.test(await ev(`document.querySelector('.chore.done .meta').textContent`)));
+check('check button is stamped with Mom avatar', await ev(`(() => { const b = document.querySelector('.chore.done .check'); return b.classList.contains('stamped') && b.querySelector('.stamp') && b.querySelector('.stamp').textContent === document.querySelector('[data-action=pick-me] .avatar').textContent; })()`));
+check('stamp carries Mom colour', await ev(`document.querySelector('.chore.done .check .stamp').style.getPropertyValue('--c') === document.querySelector('[data-action=pick-me]').style.getPropertyValue('--c')`));
+check('stamp named in accessible label', /done by Mom/.test(await ev(`document.querySelector('.chore.done .check').getAttribute('aria-label')`)));
 check('ring 11% (1 of 9)', (await ev(`document.querySelector('.ring text').textContent`)) === '11%');
 await ev(`document.querySelector('.check[data-freq=weekly]').click()`); await sleep(200);
 check('weekly chore raises score to 20% (2 of 10)', (await ev(`document.querySelector('.ring text').textContent`)) === '20%', await ev(`document.querySelector('.big').textContent`));
@@ -78,6 +81,9 @@ check('day list shows 100% today', /100% · 9\/9/.test(await ev(`document.queryS
 check('yesterday shows 11%', /11% · 1\/9/.test(await ev(`document.querySelectorAll('.day-list summary .pct')[1].textContent`)));
 check('champion is Mom', /Mom/.test(await ev(`[...document.querySelectorAll('.stat')].find(s => /champion/.test(s.textContent)).textContent`)));
 check('not-logged days drawn dashed', (await ev(`document.querySelectorAll('.chart .bar.na').length`)) === 28);
+await ev(`document.querySelector('.day-list details').open = true`);
+check('history log lines carry avatar stamps', (await ev(`document.querySelectorAll('.day-list li:first-child .logline .avatar').length`)) === 9, await ev(`document.querySelectorAll('.day-list li:first-child .logline .avatar').length`));
+check('history log shows time and name', /Mom · \d+:\d\d/.test(await ev(`document.querySelector('.day-list details .logline').textContent`)));
 await shot('05-history');
 
 // 7. chores tab: add, edit, delete
@@ -96,7 +102,11 @@ check('reorder moved first daily chore down', /Liam's Room/.test(await ev(`docum
 // 8. family tab
 await ev(`location.hash = '#family'`); await sleep(300);
 check('4 members listed', (await ev(`document.querySelectorAll('.edit-list li').length`)) === 4);
-check('sync section explains Firebase setup', /firebase-config\.js/.test(await ev(`document.body.textContent`)));
+await ev(`document.querySelector('[data-action=add-member]').click()`); await sleep(100);
+check('member form disables the 4 taken avatars', (await ev(`document.querySelectorAll('#dialogForm input[name=emoji][disabled]').length`)) === 4);
+check('member form defaults to an unused avatar', await ev(`!document.querySelector('#dialogForm input[name=emoji]:checked').disabled`));
+await ev(`document.querySelector('#dialogForm button[value=cancel]').click()`); await sleep(100);
+check('sync section offers setup help or create/join', /firebase-config\.js|Create a shared family/.test(await ev(`document.body.textContent`)));
 await ev(`(() => { const s = document.querySelector('[data-setting=weekStart]'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`); await sleep(200);
 check('week start saved', (await ev(`JSON.parse(localStorage.getItem('fc:config')).settings.weekStart`)) === 1);
 await shot('07-family');
