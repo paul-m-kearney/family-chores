@@ -34,3 +34,10 @@
 - PI request: stamp each completed task with the completer's unique avatar.
 - Change: the check button becomes the completer's stamp (emoji on their colour) with a short pop animation; "for <name>" marks the assignee separately; History log lines carry the stamp plus name and time; member chips use coloured avatars; each check-off snapshots byName/emoji/color so history survives member edits or removal; member form disables avatars and colours already taken, defaults to the first unused, blocks exact duplicates; wizard assigns distinct pairs.
 - Verification: local UI 47/47 (new checks: stamp class/emoji/colour match the chosen person, accessible label names the completer, log stamps, taken avatars disabled), live sync 20/20, unit 18/18. Zip rebuilt.
+
+## 2026-11-21 addendum 3: points and rewards
+
+- PI request: per-member points (+1 daily, +3 weekly, +5 monthly), a reward thermometer with prizes at 25/50/100, and a manual way to deduct points when exchanged.
+- Design: earned points are derived from check-offs (`ChoreLogic.pointsEarned`), never stored, so unchecking takes them back; exchanges and bonuses are a ledger in `config.redemptions` ({id, memberId, delta, note, at, by, byName}); balance = earned + bonus − exchanged. Ledger lives in the config doc so no Firestore rules change was needed. Point values and the three reward tiers (points + label) are editable on the Family tab (`settings.points`, `settings.rewards`).
+- UI: new Rewards tab (🏆): per-member card with balance, horizontal thermometer (bulb + tube, tick marks at each tier, reached ticks green), "N more for <prize>", Exchange dialog (affordable tiers selectable, others greyed, custom amount, note), Adjust dialog (± with reason), ledger with undo. Chore rows show "+1/+3/+5".
+- Verification: unit 21/21 (3 new tests), local UI 64/64 (17 new checks), live sync 20/20. Zip rebuilt.

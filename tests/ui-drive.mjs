@@ -32,6 +32,7 @@ const counts = await ev(`JSON.stringify([...document.querySelectorAll('.card')].
 check('starter chores loaded (9 daily, 14 weekly, 6 monthly)', /Today's:9/.test(counts) && /This:14/.test(counts) && /This:6/.test(counts), counts);
 check('ring shows 0%', (await ev(`document.querySelector('.ring text').textContent`)) === '0%');
 check('4 member chips + Someone', (await ev(`document.querySelectorAll('[data-action=pick-me]').length`)) === 5);
+check('every chore row shows its point value', (await ev(`[...document.querySelectorAll('.chore .tag.pts')].map(t => t.textContent).join(',')`)) === Array(9).fill('+1').concat(Array(14).fill('+3'), Array(6).fill('+5')).join(','));
 await shot('02-today-empty');
 
 // 2. pick a person and check off chores
@@ -86,6 +87,33 @@ check('history log lines carry avatar stamps', (await ev(`document.querySelector
 check('history log shows time and name', /Mom · \d+:\d\d/.test(await ev(`document.querySelector('.day-list details .logline').textContent`)));
 await shot('05-history');
 
+// 6b. rewards: Mom has 9 (today) + 1 (yesterday) = 10 points
+await ev(`location.hash = '#rewards'`); await sleep(300);
+check('one reward card per member', (await ev(`document.querySelectorAll('.reward-card').length`)) === 4);
+const momCard = `document.querySelector('.reward-card')`;
+check('Mom balance is 10', (await ev(`${momCard}.querySelector('.balance .n').textContent`)) === '10', await ev(`${momCard}.querySelector('.balance .n').textContent`));
+check('thermometer filled to 10%', parseFloat(await ev(`${momCard}.querySelector('.thermo .fill').style.width`)) === 10, await ev(`${momCard}.querySelector('.thermo .fill').style.width`));
+check('three tier marks, none reached', (await ev(`${momCard}.querySelectorAll('.thermo .tick').length`)) === 3 && (await ev(`${momCard}.querySelectorAll('.thermo .tick.reached').length`)) === 0);
+check('shows 15 more for Small prize', /15 more for Small prize/.test(await ev(`${momCard}.textContent`)));
+check('Dad cannot exchange with 0 points', await ev(`document.querySelectorAll('.reward-card')[1].querySelector('[data-action=redeem]').disabled`));
+// bonus +20
+await ev(`${momCard}.querySelector('[data-action=adjust]').click()`); await sleep(100);
+await ev(`(() => { const f = document.getElementById('dialogForm'); f.delta.value = '20'; f.note.value = 'Helped with groceries'; f.requestSubmit(f.querySelector('button[value=ok]')); })()`); await sleep(300);
+check('bonus raises balance to 30', (await ev(`${momCard}.querySelector('.balance .n').textContent`)) === '30');
+check('25-point tier now reached', (await ev(`${momCard}.querySelectorAll('.thermo .tick.reached').length`)) === 1);
+check('exchange button says 1 reward ready', /1 reward ready/.test(await ev(`${momCard}.querySelector('[data-action=redeem]').textContent`)));
+// exchange the 25-point reward
+await ev(`${momCard}.querySelector('[data-action=redeem]').click()`); await sleep(100);
+check('exchange dialog preselects the affordable tier', (await ev(`document.querySelector('#dialogForm input[name=tier]:checked').value`)) === '25');
+check('unaffordable tiers disabled', (await ev(`document.querySelectorAll('#dialogForm input[name=tier][disabled]').length`)) === 2);
+await ev(`(() => { const f = document.getElementById('dialogForm'); f.requestSubmit(f.querySelector('button[value=ok]')); })()`); await sleep(300);
+check('exchange lowers balance to 5', (await ev(`${momCard}.querySelector('.balance .n').textContent`)) === '5');
+check('log shows exchange and bonus', (await ev(`document.querySelectorAll('.edit-list li').length`)) === 2 && /−25 pts.*Small prize/s.test(await ev(`document.querySelector('.edit-list li').textContent`)));
+// undo the exchange
+await ev(`window.confirm = () => true; document.querySelector('[data-action=undo-adjust]').click()`); await sleep(300);
+check('undo restores balance to 30', (await ev(`${momCard}.querySelector('.balance .n').textContent`)) === '30');
+await shot('13-rewards');
+
 // 7. chores tab: add, edit, delete
 await ev(`location.hash = '#chores'`); await sleep(300);
 await ev(`document.querySelector('[data-action=add-chore]').click()`); await sleep(100);
@@ -109,6 +137,14 @@ await ev(`document.querySelector('#dialogForm button[value=cancel]').click()`); 
 check('sync section offers setup help or create/join', /firebase-config\.js|Create a shared family/.test(await ev(`document.body.textContent`)));
 await ev(`(() => { const s = document.querySelector('[data-setting=weekStart]'); s.value = '1'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`); await sleep(200);
 check('week start saved', (await ev(`JSON.parse(localStorage.getItem('fc:config')).settings.weekStart`)) === 1);
+await ev(`(() => { const i = document.querySelector('[data-setting="points.daily"]'); i.value = '2'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`); await sleep(200);
+check('daily point value saved', (await ev(`JSON.parse(localStorage.getItem('fc:config')).settings.points.daily`)) === 2);
+await ev(`(() => { const i = document.querySelector('[data-setting="reward.0.label"]'); i.value = 'Ice cream'; i.dispatchEvent(new Event('change', { bubbles: true })); })()`); await sleep(200);
+check('reward label saved', (await ev(`JSON.parse(localStorage.getItem('fc:config')).settings.rewards[0].label`)) === 'Ice cream');
+await ev(`location.hash = '#rewards'`); await sleep(300);
+check('rewards recalculated: 10 chores x 2 + 20 bonus = 40', (await ev(`document.querySelector('.reward-card .balance .n').textContent`)) === '40', await ev(`document.querySelector('.reward-card .balance .n').textContent`));
+check('renamed tier shows on thermometer', /Ice cream/.test(await ev(`document.querySelector('.reward-card .thermo').textContent`)));
+await ev(`location.hash = '#family'`); await sleep(300);
 await shot('07-family');
 
 // 9. persistence across reload

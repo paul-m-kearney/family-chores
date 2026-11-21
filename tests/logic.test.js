@@ -113,3 +113,41 @@ test('describeDay', () => {
   assert.equal(L.describeDay('2026-11-15', '2026-11-16'), 'Yesterday');
   assert.equal(L.describeDay('2026-11-10', '2026-11-16'), 'Tue Nov 10');
 });
+
+test('points: 1/3/5 by frequency, per person, derived from check-offs', () => {
+  const days = {
+    '2026-11-15': { scheduled: [], checks: { a: chk('daily', 'mom'), w1: chk('weekly', 'kid') } },
+    '2026-11-16': { scheduled: [], checks: { m1: chk('monthly', 'mom'), b: chk('daily', 'kid'), c: chk('daily', null) } },
+  };
+  const e = L.pointsEarned(days, {});
+  assert.deepEqual(e.mom, { total: 6, daily: 1, weekly: 0, monthly: 5, count: 2 });
+  assert.deepEqual(e.kid, { total: 4, daily: 1, weekly: 3, monthly: 0, count: 2 });
+  assert.equal(e._anyone.total, 1);
+  // custom values and a date window
+  assert.equal(L.pointsEarned(days, { points: { daily: 2, weekly: 10, monthly: 0 } }).kid.total, 12);
+  assert.equal(L.pointsEarned(days, {}, '2026-11-16', '2026-11-16').kid.total, 1);
+  assert.equal(L.pointsFor('weekly', {}), 3);
+  assert.equal(L.pointsFor('weekly', { points: { weekly: '7' } }), 7);
+  assert.equal(L.pointsFor('weekly', { points: { weekly: 'junk' } }), 3);
+});
+
+test('points: balance = earned + bonuses - exchanges; unchecking takes points back', () => {
+  const days = { '2026-11-16': { scheduled: [], checks: { a: chk('daily', 'mom'), w: chk('weekly', 'mom') } } };
+  const cfg = { settings: {}, redemptions: [
+    { id: '1', memberId: 'mom', delta: -3, note: 'candy', at: 'x' },
+    { id: '2', memberId: 'mom', delta: 2, note: 'bonus', at: 'x' },
+    { id: '3', memberId: 'kid', delta: -1, note: 'other kid', at: 'x' },
+  ] };
+  assert.deepEqual(L.pointsBalance(days, cfg, 'mom'), { earned: 4, redeemed: 3, bonus: 2, balance: 3 });
+  assert.deepEqual(L.pointsBalance(days, cfg, 'kid'), { earned: 0, redeemed: 1, bonus: 0, balance: -1 });
+  delete days['2026-11-16'].checks.w;
+  assert.equal(L.pointsBalance(days, cfg, 'mom').balance, 0);
+  assert.equal(L.pointsBalance(days, { settings: {} }, 'nobody').balance, 0);
+});
+
+test('reward tiers default to 25/50/100, are sortable and editable, status marks reached tiers', () => {
+  assert.deepEqual(L.rewardTiers({}).map(t => t.points), [25, 50, 100]);
+  assert.deepEqual(L.rewardTiers({ rewards: [{ points: '60', label: 'Movie' }, { points: 10, label: 'Sticker' }, { points: 0, label: 'bad' }] }).map(t => t.points + t.label), ['10Sticker', '60Movie']);
+  const st = L.rewardStatus(30, L.rewardTiers({}));
+  assert.deepEqual(st.map(t => [t.reached, t.remaining]), [[true, 0], [false, 20], [false, 70]]);
+});

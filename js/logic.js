@@ -177,8 +177,57 @@
     return (best && !tie) ? { id: best, count: n } : null;
   }
 
+  /* Points and rewards. Earned points are derived from check-offs (never stored), so unchecking
+     takes them back automatically. Exchanges and bonuses live in config.redemptions as
+     { id, memberId, delta, note, at, by }; delta < 0 is an exchange, delta > 0 a bonus. */
+  var DEFAULT_POINTS = { daily: 1, weekly: 3, monthly: 5 };
+  var DEFAULT_REWARDS = [{ points: 25, label: 'Small prize' }, { points: 50, label: 'Medium prize' }, { points: 100, label: 'Big prize' }];
+  function num(v, d) { var n = Number(v); return isFinite(n) && n >= 0 ? n : d; }
+  function pointValues(settings) {
+    var p = (settings && settings.points) || {};
+    return { daily: num(p.daily, DEFAULT_POINTS.daily), weekly: num(p.weekly, DEFAULT_POINTS.weekly), monthly: num(p.monthly, DEFAULT_POINTS.monthly) };
+  }
+  function pointsFor(freq, settings) { return pointValues(settings)[freq] || 0; }
+  function pointsEarned(days, settings, fromKey, toKey) {
+    var pv = pointValues(settings), out = {};
+    Object.keys(days || {}).forEach(function (k) {
+      if ((fromKey && k < fromKey) || (toKey && k > toKey)) return;
+      var d = days[k];
+      Object.keys((d && d.checks) || {}).forEach(function (id) {
+        var c = d.checks[id]; if (!c) return;
+        var who = c.by || '_anyone', pts = pv[c.freq] || 0;
+        var o = out[who] || (out[who] = { total: 0, daily: 0, weekly: 0, monthly: 0, count: 0 });
+        o.total += pts; o[c.freq] = (o[c.freq] || 0) + pts; o.count++;
+      });
+    });
+    return out;
+  }
+  function adjustments(config) { return (config && Array.isArray(config.redemptions)) ? config.redemptions : []; }
+  function pointsBalance(days, config, memberId) {
+    var e = pointsEarned(days, config && config.settings);
+    var earned = (e[memberId] || {}).total || 0, redeemed = 0, bonus = 0;
+    adjustments(config).forEach(function (r) {
+      if (r.memberId !== memberId) return;
+      var d = Number(r.delta) || 0;
+      if (d < 0) redeemed += -d; else bonus += d;
+    });
+    return { earned: earned, redeemed: redeemed, bonus: bonus, balance: earned + bonus - redeemed };
+  }
+  function rewardTiers(settings) {
+    var r = settings && settings.rewards;
+    if (!Array.isArray(r) || !r.length) r = DEFAULT_REWARDS;
+    return r.map(function (x) { return { points: Math.round(Number(x.points)) || 0, label: String(x.label || '') }; })
+      .filter(function (x) { return x.points > 0; })
+      .sort(function (a, b) { return a.points - b.points; });
+  }
+  function rewardStatus(balance, tiers) {
+    return tiers.map(function (t) { return { points: t.points, label: t.label, reached: balance >= t.points, remaining: Math.max(0, t.points - balance) }; });
+  }
+
   return {
-    MILESTONES: MILESTONES, WEEKDAYS: WEEKDAYS, MONTHS: MONTHS,
+    MILESTONES: MILESTONES, DEFAULT_POINTS: DEFAULT_POINTS, DEFAULT_REWARDS: DEFAULT_REWARDS,
+    pointValues: pointValues, pointsFor: pointsFor, pointsEarned: pointsEarned, adjustments: adjustments,
+    pointsBalance: pointsBalance, rewardTiers: rewardTiers, rewardStatus: rewardStatus, WEEKDAYS: WEEKDAYS, MONTHS: MONTHS,
     pad2: pad2, dateKey: dateKey, parseKey: parseKey, addDays: addDays, todayKey: todayKey,
     weekdayOf: weekdayOf, daysBetween: daysBetween, weekStartKey: weekStartKey, weekDays: weekDays,
     monthKey: monthKey, monthStartKey: monthStartKey, daysInMonth: daysInMonth, monthDays: monthDays,

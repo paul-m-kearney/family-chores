@@ -116,7 +116,7 @@
   }
   function route() {
     var h = (location.hash || '#today').replace('#', '');
-    tab = ['today', 'history', 'chores', 'family'].indexOf(h) >= 0 ? h : 'today';
+    tab = ['today', 'rewards', 'history', 'chores', 'family'].indexOf(h) >= 0 ? h : 'today';
     $$('nav.tabs a').forEach(function (a) { if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
     render();
   }
@@ -163,6 +163,7 @@
     else { pill.textContent = 'This device'; pill.className = 'sync-pill'; pill.title = 'Data is stored on this device only'; }
     var app = $('#app');
     if (tab === 'today') app.innerHTML = renderToday();
+    else if (tab === 'rewards') app.innerHTML = renderRewards();
     else if (tab === 'history') app.innerHTML = renderHistory();
     else if (tab === 'chores') app.innerHTML = renderChores();
     else app.innerHTML = renderFamily();
@@ -181,6 +182,7 @@
       '<button type="button" class="check' + (done && c.color ? ' stamped' : '') + '" role="checkbox" aria-checked="' + done + '" data-action="toggle" data-id="' + attr(t.id) + '" data-freq="' + attr(t.freq) + '" data-date="' + attr(flexDate || viewDate) + '" aria-label="' + attr(t.title + (done ? ', done by ' + who : '')) + '">' + stamp + '</button>' +
       '<div class="info"><div class="title">' + esc(t.title) + '</div><div class="meta">' +
       (t.freq !== 'daily' ? '<span class="tag freq-' + t.freq + '">' + t.freq + '</span>' : '') +
+      '<span class="tag pts">+' + L.pointsFor(t.freq, config.settings) + '</span>' +
       (m ? '<span class="who" title="Assigned to ' + attr(m.name) + '">' + avatarHtml(m, 'xs') + '<span class="tiny">for</span> ' + esc(m.name) + '</span>' : (t.freq === 'daily' ? '<span class="tiny">anyone</span>' : '')) +
       (done ? '<span>· done by ' + esc(who) + esc(when) + '</span>' : '') +
       '</div></div></li>';
@@ -244,6 +246,76 @@
     return h;
   }
 
+  function thermometer(balance, tiers, color) {
+    var max = tiers.length ? tiers[tiers.length - 1].points : 100;
+    var pct = Math.max(0, Math.min(100, 100 * balance / max));
+    var ticks = tiers.map(function (t) {
+      var x = Math.min(100, 100 * t.points / max);
+      return '<div class="tick' + (balance >= t.points ? ' reached' : '') + '" style="left:' + x.toFixed(1) + '%"><span class="mark"></span><span class="lbl">' + t.points + '<br><small>' + esc(t.label) + (balance >= t.points ? ' ✓' : '') + '</small></span></div>';
+    }).join('');
+    return '<div class="thermo" style="--c:' + attr(color) + '" role="img" aria-label="' + attr(balance + ' of ' + max + ' points') + '"><div class="bulb"></div><div class="tube"><div class="fill" style="width:' + pct.toFixed(1) + '%"></div>' + ticks + '</div></div>';
+  }
+  function renderRewards() {
+    var days = store.listDays(), tiers = L.rewardTiers(config.settings), pv = L.pointValues(config.settings);
+    var wk = L.weekDays(L.weekStartKey(today, weekStart()));
+    var weekEarned = L.pointsEarned(days, config.settings, wk[0], wk[6]);
+    var h = '<div class="card"><h2>Points</h2><p class="small muted">Daily chores earn <strong>' + pv.daily + '</strong>, weekly <strong>' + pv.weekly + '</strong>, monthly <strong>' + pv.monthly + '</strong>. Rewards at ' + tiers.map(function (t) { return t.points; }).join(', ') + ' points. Change these on the Family tab.</p></div>';
+    if (!config.members.length) return h + '<div class="card"><div class="empty">Add family members on the Family tab to start tracking points.</div></div>';
+    config.members.forEach(function (m) {
+      var b = L.pointsBalance(days, config, m.id), st = L.rewardStatus(b.balance, tiers);
+      var next = st.filter(function (t) { return !t.reached; })[0];
+      var afford = st.filter(function (t) { return t.reached; }).length;
+      h += '<div class="card reward-card" data-member="' + attr(m.id) + '"><div class="row between"><div class="row" style="gap:10px">' + avatarHtml(m, 'lg') + '<div><div style="font-weight:700">' + esc(m.name) + '</div><div class="tiny">' + (weekEarned[m.id] ? weekEarned[m.id].total : 0) + ' pts this week · ' + b.earned + ' earned all time' + (b.redeemed ? ' · ' + b.redeemed + ' exchanged' : '') + (b.bonus ? ' · ' + b.bonus + ' bonus' : '') + '</div></div></div>' +
+        '<div class="balance" style="--c:' + attr(m.color) + '"><span class="n">' + b.balance + '</span><span class="tiny">points</span></div></div>' +
+        thermometer(b.balance, tiers, m.color) +
+        '<div class="tiny" style="margin-top:4px">' + (next ? next.remaining + ' more for ' + esc(next.label) : (tiers.length ? 'Top reward reached!' : '')) + '</div>' +
+        '<div class="row" style="margin-top:10px"><button class="btn primary sm" data-action="redeem" data-id="' + attr(m.id) + '"' + (b.balance <= 0 ? ' disabled' : '') + '>🎁 Exchange points' + (afford ? ' (' + afford + ' reward' + (afford > 1 ? 's' : '') + ' ready)' : '') + '</button><button class="btn sm" data-action="adjust" data-id="' + attr(m.id) + '">± Adjust</button></div></div>';
+    });
+    var log = L.adjustments(config).slice().sort(function (a, b) { return a.at < b.at ? 1 : -1; }).slice(0, 30);
+    h += '<div class="card"><h2>Exchanges and adjustments</h2>';
+    h += log.length ? '<ul class="edit-list">' + log.map(function (r) {
+      var m = member(r.memberId); var d = Number(r.delta) || 0;
+      return '<li>' + (m ? avatarHtml(m, '') : '<span class="avatar">?</span>') + '<div><div style="font-weight:600">' + (d < 0 ? '−' + (-d) + ' pts' : '+' + d + ' pts') + ' · ' + esc(m ? m.name : 'Removed member') + '</div><div class="tiny">' + esc(r.note || (d < 0 ? 'Exchanged' : 'Bonus')) + ' · ' + esc(new Date(r.at).toLocaleDateString([], { month: 'short', day: 'numeric' })) + (r.byName ? ' · by ' + esc(r.byName) : '') + '</div></div><div class="actions"><button class="btn" data-action="undo-adjust" data-id="' + attr(r.id) + '" aria-label="Undo">↶</button></div></li>';
+    }).join('') + '</ul>' : '<div class="empty small">No exchanges yet. When someone trades points for a prize, record it with "Exchange points" so their balance goes down.</div>';
+    h += '</div>';
+    return h;
+  }
+  function redeemForm(m) {
+    var b = L.pointsBalance(store.listDays(), config, m.id), tiers = L.rewardTiers(config.settings);
+    var opts = tiers.map(function (t, i) { var ok = b.balance >= t.points; return '<label class="tier' + (ok ? '' : ' taken') + '"><input type="radio" name="tier" value="' + t.points + '"' + (ok ? '' : ' disabled') + (ok && i === 0 ? ' checked' : '') + '><span><strong>' + esc(t.label || (t.points + ' points')) + '</strong><br><small>' + t.points + ' points' + (ok ? '' : ' · needs ' + (t.points - b.balance) + ' more') + '</small></span></label>'; }).join('');
+    var anyOk = tiers.some(function (t) { return b.balance >= t.points; });
+    var html = '<h2>' + esc(m.emoji + ' ' + m.name) + ' exchanges points</h2><p class="small muted">Balance: <strong>' + b.balance + '</strong> points.</p>' +
+      '<div class="tiers">' + opts + '<label class="tier"><input type="radio" name="tier" value="custom"' + (anyOk ? '' : ' checked') + '><span><strong>Other amount</strong><br><small>any number of points</small></span></label></div>' +
+      '<label class="field"><span>Points to deduct (for "Other amount")</span><input type="number" name="custom" min="1" max="' + Math.max(1, b.balance) + '" step="1" inputmode="numeric" value="' + Math.min(b.balance, 5) + '"></label>' +
+      '<label class="field"><span>What for? <span class="tiny">(optional)</span></span><input type="text" name="note" maxlength="60" placeholder="Ice cream, movie night, new game…"></label>' +
+      '<div class="row" style="justify-content:flex-end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Exchange</button></div>';
+    openDialog(html, function (fd) {
+      var v = fd.get('tier'), pts = v === 'custom' ? Math.round(Number(fd.get('custom'))) : Number(v);
+      if (!(pts > 0)) { toast('Enter how many points to exchange.'); return false; }
+      if (pts > b.balance) { toast(m.name + ' only has ' + b.balance + ' points.'); return false; }
+      var tier = tiers.filter(function (t) { return t.points === pts; })[0];
+      var note = String(fd.get('note') || '').trim() || (v !== 'custom' && tier ? tier.label : '');
+      addAdjustment(m.id, -pts, note);
+      toast(m.name + ' exchanged ' + pts + ' points' + (note ? ' for ' + note : '') + '.');
+    });
+  }
+  function adjustForm(m) {
+    var b = L.pointsBalance(store.listDays(), config, m.id);
+    var html = '<h2>Adjust ' + esc(m.name) + '\'s points</h2><p class="small muted">Balance: <strong>' + b.balance + '</strong>. Use a positive number for a bonus, a negative number to take points away.</p>' +
+      '<label class="field"><span>Points (+ or −)</span><input type="number" name="delta" step="1" inputmode="numeric" required value="5"></label>' +
+      '<label class="field"><span>Reason</span><input type="text" name="note" maxlength="60" required placeholder="Helped carry groceries"></label>' +
+      '<div class="row" style="justify-content:flex-end"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Save</button></div>';
+    openDialog(html, function (fd) {
+      var d = Math.round(Number(fd.get('delta')));
+      if (!d) { toast('Enter a non-zero number.'); return false; }
+      addAdjustment(m.id, d, String(fd.get('note') || '').trim());
+    });
+  }
+  function addAdjustment(memberId, delta, note) {
+    var mm = me ? member(me) : null;
+    config.redemptions = L.adjustments(config).concat([{ id: S.uid(), memberId: memberId, delta: delta, note: note || '', at: new Date().toISOString(), by: me || null, byName: mm ? mm.name : null }]);
+    store.setConfig(config).then(render);
+  }
   function renderHistory() {
     var days = store.listDays(), keys = [];
     for (var i = 29; i >= 0; i--) keys.push(L.addDays(today, -i));
@@ -325,6 +397,13 @@
       '<label class="field"><span>Week starts on</span><select data-setting="weekStart"><option value="0"' + (weekStart() === 0 ? ' selected' : '') + '>Sunday</option><option value="1"' + (weekStart() === 1 ? ' selected' : '') + '>Monday</option></select></label>' +
       '<label class="field"><span>Appearance</span><select data-setting="theme"><option value="">Match device</option><option value="light"' + (theme() === 'light' ? ' selected' : '') + '>Light</option><option value="dark"' + (theme() === 'dark' ? ' selected' : '') + '>Dark</option></select></label></div></div>';
 
+    var pv = L.pointValues(config.settings), tiers = L.rewardTiers(config.settings);
+    while (tiers.length < 3) tiers.push({ points: 0, label: '' });
+    h += '<div class="card"><h2>Points and rewards</h2><div class="stack">' +
+      '<div class="row" style="gap:8px"><label class="field" style="flex:1"><span>Daily chore</span><input type="number" min="0" step="1" inputmode="numeric" data-setting="points.daily" value="' + pv.daily + '"></label><label class="field" style="flex:1"><span>Weekly chore</span><input type="number" min="0" step="1" inputmode="numeric" data-setting="points.weekly" value="' + pv.weekly + '"></label><label class="field" style="flex:1"><span>Monthly chore</span><input type="number" min="0" step="1" inputmode="numeric" data-setting="points.monthly" value="' + pv.monthly + '"></label></div>' +
+      '<div class="tiny">Reward levels (points needed, and what the prize is):</div>' +
+      tiers.slice(0, 3).map(function (t, i) { return '<div class="row" style="gap:8px"><input type="number" min="1" step="1" inputmode="numeric" style="width:90px" data-setting="reward.' + i + '.points" value="' + (t.points || '') + '" aria-label="Points for reward ' + (i + 1) + '"><input type="text" style="flex:1" maxlength="40" data-setting="reward.' + i + '.label" value="' + attr(t.label) + '" placeholder="Prize ' + (i + 1) + '" aria-label="Name of reward ' + (i + 1) + '"></div>'; }).join('') +
+      '<div class="tiny">Points are recalculated from the chore history, so changing a value updates everyone\'s totals.</div></div></div>';
     h += '<div class="card"><h2>Sync across phones</h2>';
     if (store.mode === 'sync') {
       var link = location.origin + location.pathname + '#join=' + store.code;
@@ -373,6 +452,15 @@
     var k = el.dataset.setting;
     if (k === 'familyName') { config.familyName = el.value.trim().slice(0, 40) || 'Our Family'; store.setConfig(config); return; }
     if (k === 'weekStart') { config.settings = config.settings || {}; config.settings.weekStart = Number(el.value) || 0; store.setConfig(config).then(render); return; }
+    if (k && k.indexOf('points.') === 0) { config.settings = config.settings || {}; config.settings.points = Object.assign({}, L.pointValues(config.settings)); config.settings.points[k.slice(7)] = Math.max(0, Math.round(Number(el.value)) || 0); store.setConfig(config); return; }
+    if (k && k.indexOf('reward.') === 0) {
+      var parts = k.split('.'), idx = Number(parts[1]), field = parts[2];
+      config.settings = config.settings || {};
+      var cur = L.rewardTiers(config.settings); while (cur.length < 3) cur.push({ points: 0, label: '' });
+      var raw = (Array.isArray(config.settings.rewards) && config.settings.rewards.length >= 3) ? config.settings.rewards.slice(0, 3) : cur;
+      raw[idx] = Object.assign({}, raw[idx] || {}, field === 'points' ? { points: Math.max(0, Math.round(Number(el.value)) || 0) } : { label: el.value.slice(0, 40) });
+      config.settings.rewards = raw; store.setConfig(config); return;
+    }
     if (k === 'theme') { try { if (el.value) localStorage.setItem('fc:theme', el.value); else localStorage.removeItem('fc:theme'); } catch (x) { } applyTheme(); return; }
   }
   function onClick(e) {
@@ -387,6 +475,9 @@
     if (a === 'add-chore') return choreForm(null);
     if (a === 'edit-chore') return choreForm(tasks().filter(function (t) { return t.id === id; })[0]);
     if (a === 'move-chore') return moveChore(id, Number(el.dataset.n));
+    if (a === 'redeem') { var rm = member(id); if (rm) redeemForm(rm); return; }
+    if (a === 'adjust') { var am = member(id); if (am) adjustForm(am); return; }
+    if (a === 'undo-adjust') { var entry = L.adjustments(config).filter(function (r) { return r.id === id; })[0]; if (!entry) return; if (!confirm('Undo this ' + (entry.delta < 0 ? 'exchange' : 'adjustment') + ' of ' + Math.abs(entry.delta) + ' points?')) return; config.redemptions = L.adjustments(config).filter(function (r) { return r.id !== id; }); store.setConfig(config).then(render); return; }
     if (a === 'add-member') return memberForm(null);
     if (a === 'edit-member') return memberForm(member(id));
     if (a === 'export') return download(store.exportAll(), 'family-chores-' + today + '.json');
